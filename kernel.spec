@@ -124,13 +124,13 @@ Summary: The Linux kernel
 # define buildid .local
 %define specversion 5.19.0
 %define patchversion 5.19
-%define pkgrelease 0.rc3.20220623gitde5c208d533a.29
+%define pkgrelease 0.enarx.3
 %define kversion 5
-%define tarfile_release 5.19-rc3-48-gde5c208d533a
+%define tarfile_release enarx-v3
 # This is needed to do merge window version magic
 %define patchlevel 19
 # This allows pkg_release to have configurable %%{?dist} tag
-%define specrelease 0.rc3.20220623gitde5c208d533a.29%{?buildid}%{?dist}
+%define specrelease 0.enarx.3.1%{?buildid}%{?dist}
 # This defines the kabi tarball version
 %define kabiversion 5.19.0
 
@@ -695,7 +695,7 @@ BuildRequires: lld
 # exact git commit you can run
 #
 # xzcat -qq ${TARBALL} | git get-tar-commit-id
-Source0: linux-%{tarfile_release}.tar.xz
+Source0: https://github.com/enarx/linux/archive/%{tarfile_release}/linux-%{tarfile_release}.tar.gz
 
 Source1: Makefile.rhelver
 
