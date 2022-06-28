@@ -1,0 +1,39 @@
+From 840f8f7d3a94d4cfa8e12d72e7b0869009e92850 Mon Sep 17 00:00:00 2001
+From: Michael Roth <michael.roth@amd.com>
+Date: Tue, 26 Apr 2022 19:33:58 +0000
+Subject: [PATCH 48/89]  *debug: trace_kvm_mmu_spte_requested: add 
+ fault.max_level to output
+
+Signed-off-by: Michael Roth <michael.roth@amd.com>
+---
+ arch/x86/kvm/mmu/mmutrace.h | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/arch/x86/kvm/mmu/mmutrace.h b/arch/x86/kvm/mmu/mmutrace.h
+index 12247b96af01..4b60f755bc21 100644
+--- a/arch/x86/kvm/mmu/mmutrace.h
++++ b/arch/x86/kvm/mmu/mmutrace.h
+@@ -374,16 +374,18 @@ TRACE_EVENT(
+ 		__field(u64, gfn)
+ 		__field(u64, pfn)
+ 		__field(u8, level)
++		__field(u8, max_level)
+ 	),
+ 
+ 	TP_fast_assign(
+ 		__entry->gfn = fault->gfn;
+ 		__entry->pfn = fault->pfn | (fault->gfn & (KVM_PAGES_PER_HPAGE(fault->goal_level) - 1));
+ 		__entry->level = fault->goal_level;
++		__entry->max_level = fault->max_level;
+ 	),
+ 
+-	TP_printk("gfn %llx pfn %llx level %d",
+-		  __entry->gfn, __entry->pfn, __entry->level
++	TP_printk("gfn %llx pfn %llx level %d max_level %d",
++		  __entry->gfn, __entry->pfn, __entry->level, __entry->max_level
+ 	)
+ );
+ 
+-- 
+2.36.1
+

@@ -1,0 +1,27 @@
+From 561d60ba75691dee84008682bf422b51cf9f41ae Mon Sep 17 00:00:00 2001
+From: Jarkko Sakkinen <jarkko@kernel.org>
+Date: Tue, 28 Jun 2022 03:56:12 +0300
+Subject: [PATCH] KVM: SVM: Make alloc_apic_backing_page() optional
+
+Signed-off-by: Ashish Kalra <Ashish.Kalra@amd.com>
+Signed-off-by: Jarkko Sakkinen <jarkko@kernel.org>
+---
+ arch/x86/include/asm/kvm-x86-ops.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/arch/x86/include/asm/kvm-x86-ops.h b/arch/x86/include/asm/kvm-x86-ops.h
+index e0068e702692..1ca41da8ba13 100644
+--- a/arch/x86/include/asm/kvm-x86-ops.h
++++ b/arch/x86/include/asm/kvm-x86-ops.h
+@@ -128,7 +128,7 @@ KVM_X86_OP(msr_filter_changed)
+ KVM_X86_OP(complete_emulated_msr)
+ KVM_X86_OP(vcpu_deliver_sipi_vector)
+ KVM_X86_OP_OPTIONAL_RET0(vcpu_get_apicv_inhibit_reasons);
+-KVM_X86_OP(alloc_apic_backing_page)
++KVM_X86_OP_OPTIONAL(alloc_apic_backing_page)
+ KVM_X86_OP_OPTIONAL(rmp_page_level_adjust)
+ 
+ #undef KVM_X86_OP
+-- 
+2.36.1
+

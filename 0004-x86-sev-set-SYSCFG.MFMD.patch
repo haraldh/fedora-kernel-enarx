@@ -1,0 +1,75 @@
+From c933e87762d78e5dce78e9bbf9c41aa0b30ddba2 Mon Sep 17 00:00:00 2001
+From: Brijesh Singh <brijesh.singh@amd.com>
+Date: Mon, 25 Apr 2022 21:58:02 +0000
+Subject: [PATCH 04/89] x86/sev: set SYSCFG.MFMD
+
+SEV-SNP FW >= 1.51 requires that SYSCFG.MFMD must be set.
+
+Subsequent CCP patches while require 1.51 as the minimum SEV-SNP
+firmware version.
+
+Signed-off-by: Brijesh Singh <brijesh.singh@amd.com>
+---
+ arch/x86/include/asm/msr-index.h |  3 +++
+ arch/x86/kernel/sev.c            | 24 ++++++++++++++++++++++++
+ 2 files changed, 27 insertions(+)
+
+diff --git a/arch/x86/include/asm/msr-index.h b/arch/x86/include/asm/msr-index.h
+index 57a8280e283a..1e36f16daa56 100644
+--- a/arch/x86/include/asm/msr-index.h
++++ b/arch/x86/include/asm/msr-index.h
+@@ -587,6 +587,9 @@
+ #define MSR_AMD64_SYSCFG_SNP_EN		BIT_ULL(MSR_AMD64_SYSCFG_SNP_EN_BIT)
+ #define MSR_AMD64_SYSCFG_SNP_VMPL_EN_BIT	25
+ #define MSR_AMD64_SYSCFG_SNP_VMPL_EN	BIT_ULL(MSR_AMD64_SYSCFG_SNP_VMPL_EN_BIT)
++#define MSR_AMD64_SYSCFG_MFDM_BIT		19
++#define MSR_AMD64_SYSCFG_MFDM		BIT_ULL(MSR_AMD64_SYSCFG_MFDM_BIT)
++
+ #define MSR_K8_INT_PENDING_MSG		0xc0010055
+ /* C1E active bits in int pending message */
+ #define K8_INTP_C1E_ACTIVE_MASK		0x18000000
+diff --git a/arch/x86/kernel/sev.c b/arch/x86/kernel/sev.c
+index 3a233b5d47c5..25c7feb367f6 100644
+--- a/arch/x86/kernel/sev.c
++++ b/arch/x86/kernel/sev.c
+@@ -2257,6 +2257,27 @@ static __init void snp_enable(void *arg)
+ 	__snp_enable(smp_processor_id());
+ }
+ 
++static int __mfdm_enable(unsigned int cpu)
++{
++	u64 val;
++
++	if (!cpu_feature_enabled(X86_FEATURE_SEV_SNP))
++		return 0;
++
++	rdmsrl(MSR_AMD64_SYSCFG, val);
++
++	val |= MSR_AMD64_SYSCFG_MFDM;
++
++	wrmsrl(MSR_AMD64_SYSCFG, val);
++
++	return 0;
++}
++
++static __init void mfdm_enable(void *arg)
++{
++	__mfdm_enable(smp_processor_id());
++}
++
+ static bool get_rmptable_info(u64 *start, u64 *len)
+ {
+ 	u64 calc_rmp_sz, rmp_sz, rmp_base, rmp_end, nr_pages;
+@@ -2325,6 +2346,9 @@ static __init int __snp_rmptable_init(void)
+ 	/* Flush the caches to ensure that data is written before SNP is enabled. */
+ 	wbinvd_on_all_cpus();
+ 
++	/* MFDM must be enabled on all the CPUs prior to enabling SNP. */
++	on_each_cpu(mfdm_enable, NULL, 1);
++
+ 	/* Enable SNP on all CPUs. */
+ 	on_each_cpu(snp_enable, NULL, 1);
+ 
+-- 
+2.36.1
+

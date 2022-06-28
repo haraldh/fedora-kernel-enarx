@@ -1,0 +1,69 @@
+From 120de6a393c2da31be3f648828aea6a54822605a Mon Sep 17 00:00:00 2001
+From: Michael Roth <michael.roth@amd.com>
+Date: Tue, 26 Apr 2022 19:42:23 +0000
+Subject: [PATCH 49/89] *debug: define trace_kvm_sev_es_unmap_ghcb
+
+Signed-off-by: Michael Roth <michael.roth@amd.com>
+---
+ arch/x86/kvm/trace.h | 32 ++++++++++++++++++++++++++++++++
+ arch/x86/kvm/x86.c   |  1 +
+ 2 files changed, 33 insertions(+)
+
+diff --git a/arch/x86/kvm/trace.h b/arch/x86/kvm/trace.h
+index 79801e50344a..58c2a1ac0c6b 100644
+--- a/arch/x86/kvm/trace.h
++++ b/arch/x86/kvm/trace.h
+@@ -1789,6 +1789,38 @@ TRACE_EVENT(kvm_snp_psc,
+ 		  __entry->level)
+ );
+ 
++TRACE_EVENT(kvm_sev_es_unmap_ghcb,
++	TP_PROTO(void *ghcb_sa, u64 ghcb_sa_gpa, u32 ghcb_sa_len, u32 ghcb_sa_alloc_len, bool ghcb_sa_sync, bool ghcb_in_use, u8 ghcb_sa0, u8 ghcb_sa1),
++	TP_ARGS(ghcb_sa, ghcb_sa_gpa, ghcb_sa_len, ghcb_sa_alloc_len, ghcb_sa_sync, ghcb_in_use, ghcb_sa0, ghcb_sa1),
++
++	TP_STRUCT__entry(
++		__field(u64, ghcb_sa_hva)
++		__field(u64, ghcb_sa_gpa)
++		__field(u32, ghcb_sa_len)
++		__field(u32, ghcb_sa_alloc_len)
++		__field(bool, ghcb_sa_sync)
++		__field(bool, ghcb_in_use)
++		__field(u8, ghcb_sa0)
++		__field(u8, ghcb_sa1)
++	),
++
++	TP_fast_assign(
++		__entry->ghcb_sa_hva = (u64)ghcb_sa;
++		__entry->ghcb_sa_gpa = ghcb_sa_gpa;
++		__entry->ghcb_sa_len = ghcb_sa_len;
++		__entry->ghcb_sa_alloc_len = ghcb_sa_alloc_len;
++		__entry->ghcb_sa_sync = ghcb_sa_sync;
++		__entry->ghcb_in_use = ghcb_in_use;
++		__entry->ghcb_sa0 = ghcb_sa0;
++		__entry->ghcb_sa1 = ghcb_sa1;
++	),
++
++	TP_printk("ghcb_sa_hva %016llx, ghcb_gpa %016llx, ghcb_sa_len 0x%x, ghcb_sa_alloc_len 0x%x, ghcb_sa_sync %d, ghcb_in_use %d, ghcb_sa0 0x%x, ghcb_sa1 0x%x",
++		  __entry->ghcb_sa_hva, __entry->ghcb_sa_gpa, __entry->ghcb_sa_len,
++		  __entry->ghcb_sa_alloc_len, __entry->ghcb_sa_sync, __entry->ghcb_in_use,
++		  __entry->ghcb_sa0, __entry->ghcb_sa1)
++);
++
+ #endif /* _TRACE_KVM_H */
+ 
+ #undef TRACE_INCLUDE_PATH
+diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
+index c649d15efae3..0cf968d0e182 100644
+--- a/arch/x86/kvm/x86.c
++++ b/arch/x86/kvm/x86.c
+@@ -13074,6 +13074,7 @@ EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_vmgexit_exit);
+ EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_vmgexit_msr_protocol_enter);
+ EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_vmgexit_msr_protocol_exit);
+ EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_snp_psc);
++EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_sev_es_unmap_ghcb);
+ 
+ static int __init kvm_x86_init(void)
+ {
+-- 
+2.36.1
+

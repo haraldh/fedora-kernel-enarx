@@ -121,7 +121,7 @@ Summary: The Linux kernel
 #  to build the base kernel using the debug configuration. (Specifying
 #  the --with-release option overrides this setting.)
 %define debugbuildsenabled 1
-# define buildid .local
+%define buildid .enarx1
 %define specversion 5.18.6
 %define patchversion 5.18
 %define pkgrelease 200
@@ -857,6 +857,96 @@ Source4002: gating.yaml
 Patch1: patch-%{patchversion}-redhat.patch
 %endif
 
+Patch9901: 0001-x86-cpufeatures-Add-SEV-SNP-CPU-feature.patch
+Patch9902: 0002-iommu-amd-Introduce-function-to-check-SEV-SNP-suppor.patch
+Patch9903: 0003-x86-sev-Add-the-host-SEV-SNP-initialization-support.patch
+Patch9904: 0004-x86-sev-set-SYSCFG.MFMD.patch
+Patch9905: 0005-x86-sev-Add-RMP-entry-lookup-helpers.patch
+Patch9906: 0006-x86-sev-Add-helper-functions-for-RMPUPDATE-and-PSMAS.patch
+Patch9907: 0007-x86-sev-Invalid-pages-from-direct-map-when-adding-it.patch
+Patch9908: 0008-x86-traps-Define-RMP-violation-PF-error-code.patch
+Patch9909: 0009-x86-fault-Add-support-to-handle-the-RMP-fault-for-us.patch
+Patch9910: 0010-x86-fault-Add-support-to-dump-RMP-entry-on-fault.patch
+Patch9911: 0011-crypto-ccp-Define-the-SEV-SNP-commands.patch
+Patch9912: 0012-crypto-ccp-Add-support-to-initialize-the-AMD-SP-for-.patch
+Patch9913: 0013-crypto-ccp-Provide-APIs-to-issue-SEV-SNP-commands.patch
+Patch9914: 0014-crypto-ccp-Handle-the-legacy-TMR-allocation-when-SNP.patch
+Patch9915: 0015-crypto-ccp-Handle-the-legacy-SEV-command-when-SNP-is.patch
+Patch9916: 0016-crypto-ccp-Add-the-SNP_PLATFORM_STATUS-command.patch
+Patch9917: 0017-crypto-ccp-Add-the-SNP_-SET-GET-_EXT_CONFIG-command.patch
+Patch9918: 0018-crypto-ccp-Provide-APIs-to-query-extended-attestatio.patch
+Patch9919: 0019-KVM-SVM-Add-support-to-handle-AP-reset-MSR-protocol.patch
+Patch9920: 0020-KVM-SVM-Provide-the-Hypervisor-Feature-support-VMGEX.patch
+Patch9921: 0021-KVM-SVM-Make-AVIC-backing-VMSA-and-VMCB-memory-alloc.patch
+Patch9922: 0022-KVM-SVM-Add-initial-SEV-SNP-support.patch
+Patch9923: 0023-KVM-SVM-Add-KVM_SNP_INIT-command.patch
+Patch9924: 0024-KVM-SVM-Add-KVM_SEV_SNP_LAUNCH_START-command.patch
+Patch9925: 0025-KVM-SVM-Disallow-registering-memory-range-from-HugeT.patch
+Patch9926: 0026-KVM-SVM-Add-KVM_SEV_SNP_LAUNCH_UPDATE-command.patch
+Patch9927: 0027-KVM-SVM-Mark-the-private-vma-unmerable-for-SEV-SNP-g.patch
+Patch9928: 0028-KVM-SVM-Add-KVM_SEV_SNP_LAUNCH_FINISH-command.patch
+Patch9929: 0029-KVM-X86-Keep-the-NPT-and-RMP-page-level-in-sync.patch
+Patch9930: 0030-KVM-x86-mmu-Introduce-kvm_mmu_map_tdp_page-for-use-b.patch
+Patch9931: 0031-KVM-x86-Introduce-kvm_mmu_get_tdp_walk-for-SEV-SNP-u.patch
+Patch9932: 0032-KVM-x86-Define-RMP-page-fault-error-bits-for-NPF.patch
+Patch9933: 0033-KVM-x86-Update-page-fault-trace-to-log-full-64-bit-e.patch
+Patch9934: 0034-KVM-SVM-Do-not-use-long-lived-GHCB-map-while-setting.patch
+Patch9935: 0035-KVM-SVM-Remove-the-long-lived-GHCB-host-map.patch
+Patch9936: 0036-KVM-SVM-Add-support-to-handle-GHCB-GPA-register-VMGE.patch
+Patch9937: 0037-KVM-SVM-Add-support-to-handle-MSR-based-Page-State-C.patch
+Patch9938: 0038-KVM-SVM-Add-support-to-handle-Page-State-Change-VMGE.patch
+Patch9939: 0039-KVM-SVM-Introduce-ops-for-the-post-gfn-map-and-unmap.patch
+Patch9940: 0040-KVM-x86-Export-the-kvm_zap_gfn_range-for-the-SNP-use.patch
+Patch9941: 0041-KVM-SVM-Add-support-to-handle-the-RMP-nested-page-fa.patch
+Patch9942: 0042-KVM-SVM-Provide-support-for-SNP_GUEST_REQUEST-NAE-ev.patch
+Patch9943: 0043-KVM-SVM-Use-a-VMSA-physical-address-variable-for-pop.patch
+Patch9944: 0044-KVM-SVM-Support-SEV-SNP-AP-Creation-NAE-event.patch
+Patch9945: 0045-KVM-SVM-Add-module-parameter-to-enable-the-SEV-SNP.patch
+Patch9946: 0046-ccp-add-support-to-decrypt-the-page.patch
+Patch9947: 0047-debug-dump-VMCBs-on-SNP-guest-destroy.patch
+Patch9948: 0048-debug-trace_kvm_mmu_spte_requested-add.patch
+Patch9949: 0049-debug-define-trace_kvm_sev_es_unmap_ghcb.patch
+Patch9950: 0050-debug-use-trace_kvm_sev_es_unmap_ghcb.patch
+Patch9951: 0051-debug-warn-when-kvm_write_guest-fails-in.patch
+Patch9952: 0052-debug-warn-if-setup_vmgexit_scratch-fails-in.patch
+Patch9953: 0053-debug-warn-on-specific-failures-within-__kvm_write_g.patch
+Patch9954: 0054-fix-for-stale-per-cpu-pointer-due-to-cond_resched.patch
+Patch9955: 0055-debug-warn-and-retry-failed-rmpupdates.patch
+Patch9956: 0056-debug-print-some-debug-output-when-handling-userspac.patch
+Patch9957: 0057-KVM-SVM-Sync-the-GHCB-scratch-buffer-using-already-m.patch
+Patch9958: 0058-x86-sgx-Add-short-descriptions-to-ENCLS-wrappers.patch
+Patch9959: 0059-x86-sgx-Add-wrapper-for-SGX2-EMODPR-function.patch
+Patch9960: 0060-x86-sgx-Add-wrapper-for-SGX2-EMODT-function.patch
+Patch9961: 0061-x86-sgx-Add-wrapper-for-SGX2-EAUG-function.patch
+Patch9962: 0062-x86-sgx-Support-loading-enclave-page-without-VMA-per.patch
+Patch9963: 0063-x86-sgx-Export-sgx_encl_ewb_cpumask.patch
+Patch9964: 0064-x86-sgx-Rename-sgx_encl_ewb_cpumask-as-sgx_encl_cpum.patch
+Patch9965: 0065-x86-sgx-Move-PTE-zap-code-to-new-sgx_zap_enclave_pte.patch
+Patch9966: 0066-x86-sgx-Make-sgx_ipi_cb-available-internally.patch
+Patch9967: 0067-x86-sgx-Create-utility-to-validate-user-provided-off.patch
+Patch9968: 0068-x86-sgx-Keep-record-of-SGX-page-type.patch
+Patch9969: 0069-x86-sgx-Export-sgx_encl_-grow-shrink.patch
+Patch9970: 0070-x86-sgx-Export-sgx_encl_page_alloc.patch
+Patch9971: 0071-x86-sgx-Support-VA-page-allocation-without-reclaimin.patch
+Patch9972: 0072-x86-sgx-Support-restricting-of-enclave-page-permissi.patch
+Patch9973: 0073-x86-sgx-Support-adding-of-pages-to-an-initialized-en.patch
+Patch9974: 0074-x86-sgx-Tighten-accessible-memory-range-after-enclav.patch
+Patch9975: 0075-x86-sgx-Support-modifying-SGX-page-type.patch
+Patch9976: 0076-x86-sgx-Support-complete-page-removal.patch
+Patch9977: 0077-x86-sgx-Free-up-EPC-pages-directly-to-support-large-.patch
+Patch9978: 0078-Documentation-x86-Introduce-enclave-runtime-manageme.patch
+Patch9979: 0079-selftests-sgx-Add-test-for-EPCM-permission-changes.patch
+Patch9980: 0080-selftests-sgx-Add-test-for-TCS-page-permission-chang.patch
+Patch9981: 0081-selftests-sgx-Test-two-different-SGX2-EAUG-flows.patch
+Patch9982: 0082-selftests-sgx-Introduce-dynamic-entry-point.patch
+Patch9983: 0083-selftests-sgx-Introduce-TCS-initialization-enclave-o.patch
+Patch9984: 0084-selftests-sgx-Test-complete-changing-of-page-type-fl.patch
+Patch9985: 0085-selftests-sgx-Test-faulty-enclave-behavior.patch
+Patch9986: 0086-selftests-sgx-Test-invalid-access-to-removed-enclave.patch
+Patch9987: 0087-selftests-sgx-Test-reclaiming-of-untouched-page.patch
+Patch9988: 0088-selftests-sgx-Page-removal-stress-test.patch
+Patch9989: 0089-KVM-SVM-Make-alloc_apic_backing_page-optional.patch
+
 # empty final patch to facilitate testing of kernel patches
 Patch999999: linux-kernel-test.patch
 
@@ -1397,6 +1487,10 @@ ApplyOptionalPatch patch-%{patchversion}-redhat.patch
 %endif
 
 ApplyOptionalPatch linux-kernel-test.patch
+
+for patch in *.patch; do
+  ApplyOptionalPatch $patch
+done
 
 # END OF PATCH APPLICATIONS
 

@@ -1,0 +1,72 @@
+From 66208e410232d535cb584003f66b85f78da067f2 Mon Sep 17 00:00:00 2001
+From: Tom Lendacky <thomas.lendacky@amd.com>
+Date: Tue, 26 Apr 2022 19:19:40 +0000
+Subject: [PATCH 43/89] KVM: SVM: Use a VMSA physical address variable for
+ populating VMCB
+
+In preparation to support SEV-SNP AP Creation, use a variable that holds
+the VMSA physical address rather than converting the virtual address.
+This will allow SEV-SNP AP Creation to set the new physical address that
+will be used should the vCPU reset path be taken.
+
+Signed-off-by: Tom Lendacky <thomas.lendacky@amd.com>
+---
+ arch/x86/kvm/svm/sev.c | 5 ++---
+ arch/x86/kvm/svm/svm.c | 9 ++++++++-
+ arch/x86/kvm/svm/svm.h | 1 +
+ 3 files changed, 11 insertions(+), 4 deletions(-)
+
+diff --git a/arch/x86/kvm/svm/sev.c b/arch/x86/kvm/svm/sev.c
+index be980d4fe377..62fc0cea34f1 100644
+--- a/arch/x86/kvm/svm/sev.c
++++ b/arch/x86/kvm/svm/sev.c
+@@ -3979,10 +3979,9 @@ void sev_es_init_vmcb(struct vcpu_svm *svm)
+ 
+ 	/*
+ 	 * An SEV-ES guest requires a VMSA area that is a separate from the
+-	 * VMCB page. Do not include the encryption mask on the VMSA physical
+-	 * address since hardware will access it using the guest key.
++	 * VMCB page.
+ 	 */
+-	svm->vmcb->control.vmsa_pa = __pa(svm->sev_es.vmsa);
++	svm->vmcb->control.vmsa_pa = svm->sev_es.vmsa_pa;
+ 
+ 	/* Can't intercept CR register access, HV can't modify CR registers */
+ 	svm_clr_intercept(svm, INTERCEPT_CR0_READ);
+diff --git a/arch/x86/kvm/svm/svm.c b/arch/x86/kvm/svm/svm.c
+index 7742bc986afc..f7155abe7567 100644
+--- a/arch/x86/kvm/svm/svm.c
++++ b/arch/x86/kvm/svm/svm.c
+@@ -1296,9 +1296,16 @@ static int svm_vcpu_create(struct kvm_vcpu *vcpu)
+ 	svm->vmcb01.pa = __sme_set(page_to_pfn(vmcb01_page) << PAGE_SHIFT);
+ 	svm_switch_vmcb(svm, &svm->vmcb01);
+ 
+-	if (vmsa_page)
++	if (vmsa_page) {
+ 		svm->sev_es.vmsa = page_address(vmsa_page);
+ 
++		/*
++		 * Do not include the encryption mask on the VMSA physical
++		 * address since hardware will access it using the guest key.
++		 */
++		svm->sev_es.vmsa_pa = __pa(svm->sev_es.vmsa);
++	}
++
+ 	svm->guest_state_loaded = false;
+ 
+ 	return 0;
+diff --git a/arch/x86/kvm/svm/svm.h b/arch/x86/kvm/svm/svm.h
+index 3be24da1a743..46790bab07a8 100644
+--- a/arch/x86/kvm/svm/svm.h
++++ b/arch/x86/kvm/svm/svm.h
+@@ -197,6 +197,7 @@ struct svm_nested_state {
+ struct vcpu_sev_es_state {
+ 	/* SEV-ES support */
+ 	struct sev_es_save_area *vmsa;
++	hpa_t vmsa_pa;
+ 	bool ghcb_in_use;
+ 	bool received_first_sipi;
+ 	unsigned int ap_reset_hold_type;
+-- 
+2.36.1
+

@@ -1,0 +1,63 @@
+From 8e73f837c94bdad71039ff15d519bad23c90b0f6 Mon Sep 17 00:00:00 2001
+From: Brijesh Singh <brijesh.singh@amd.com>
+Date: Tue, 26 Apr 2022 19:14:13 +0000
+Subject: [PATCH 40/89] KVM: x86: Export the kvm_zap_gfn_range() for the SNP
+ use
+
+While resolving the RMP page fault, we may run into cases where the page
+level between the RMP entry and TDP does not match and the 2M RMP entry
+must be split into 4K RMP entries. Or a 2M TDP page need to be broken
+into multiple of 4K pages.
+
+To keep the RMP and TDP page level in sync, we will zap the gfn range
+after splitting the pages in the RMP entry. The zap should force the
+TDP to gets rebuilt with the new page level.
+
+Signed-off-by: Brijesh Singh <brijesh.singh@amd.com>
+---
+ arch/x86/include/asm/kvm_host.h | 2 ++
+ arch/x86/kvm/mmu.h              | 2 --
+ arch/x86/kvm/mmu/mmu.c          | 1 +
+ 3 files changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/arch/x86/include/asm/kvm_host.h b/arch/x86/include/asm/kvm_host.h
+index 8abc0e724f5c..1db4d178eb1d 100644
+--- a/arch/x86/include/asm/kvm_host.h
++++ b/arch/x86/include/asm/kvm_host.h
+@@ -1627,6 +1627,8 @@ void kvm_mmu_slot_leaf_clear_dirty(struct kvm *kvm,
+ void kvm_mmu_zap_all(struct kvm *kvm);
+ void kvm_mmu_invalidate_mmio_sptes(struct kvm *kvm, u64 gen);
+ void kvm_mmu_change_mmu_pages(struct kvm *kvm, unsigned long kvm_nr_mmu_pages);
++void kvm_zap_gfn_range(struct kvm *kvm, gfn_t gfn_start, gfn_t gfn_end);
++
+ 
+ int load_pdptrs(struct kvm_vcpu *vcpu, unsigned long cr3);
+ 
+diff --git a/arch/x86/kvm/mmu.h b/arch/x86/kvm/mmu.h
+index d55b5166389a..c5044958a0fa 100644
+--- a/arch/x86/kvm/mmu.h
++++ b/arch/x86/kvm/mmu.h
+@@ -267,8 +267,6 @@ static inline u8 permission_fault(struct kvm_vcpu *vcpu, struct kvm_mmu *mmu,
+ 	return -(u32)fault & errcode;
+ }
+ 
+-void kvm_zap_gfn_range(struct kvm *kvm, gfn_t gfn_start, gfn_t gfn_end);
+-
+ int kvm_arch_write_log_dirty(struct kvm_vcpu *vcpu);
+ 
+ int kvm_mmu_post_init_vm(struct kvm *kvm);
+diff --git a/arch/x86/kvm/mmu/mmu.c b/arch/x86/kvm/mmu/mmu.c
+index c1ac486e096e..67120bfeb667 100644
+--- a/arch/x86/kvm/mmu/mmu.c
++++ b/arch/x86/kvm/mmu/mmu.c
+@@ -6084,6 +6084,7 @@ static bool kvm_mmu_zap_collapsible_spte(struct kvm *kvm,
+ 
+ 	return need_tlb_flush;
+ }
++EXPORT_SYMBOL_GPL(kvm_zap_gfn_range);
+ 
+ void kvm_mmu_zap_collapsible_sptes(struct kvm *kvm,
+ 				   const struct kvm_memory_slot *slot)
+-- 
+2.36.1
+

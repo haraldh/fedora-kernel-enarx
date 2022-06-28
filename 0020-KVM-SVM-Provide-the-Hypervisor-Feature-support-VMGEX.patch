@@ -1,0 +1,90 @@
+From 6c8cd954ac5bb1681d379a87bd25f50c24888e63 Mon Sep 17 00:00:00 2001
+From: Brijesh Singh <brijesh.singh@amd.com>
+Date: Tue, 26 Apr 2022 18:13:09 +0000
+Subject: [PATCH 20/89] KVM: SVM: Provide the Hypervisor Feature support
+ VMGEXIT
+
+Version 2 of the GHCB specification introduced advertisement of features
+that are supported by the Hypervisor.
+
+Now that KVM supports version 2 of the GHCB specification, bump the
+maximum supported protocol version.
+
+Signed-off-by: Brijesh Singh <brijesh.singh@amd.com>
+---
+ arch/x86/include/asm/sev-common.h |  2 ++
+ arch/x86/kvm/svm/sev.c            | 14 ++++++++++++++
+ arch/x86/kvm/svm/svm.h            |  3 ++-
+ 3 files changed, 18 insertions(+), 1 deletion(-)
+
+diff --git a/arch/x86/include/asm/sev-common.h b/arch/x86/include/asm/sev-common.h
+index e15548d88f2a..539de6b93420 100644
+--- a/arch/x86/include/asm/sev-common.h
++++ b/arch/x86/include/asm/sev-common.h
+@@ -101,6 +101,8 @@ enum psc_op {
+ /* GHCB Hypervisor Feature Request/Response */
+ #define GHCB_MSR_HV_FT_REQ		0x080
+ #define GHCB_MSR_HV_FT_RESP		0x081
++#define GHCB_MSR_HV_FT_POS		12
++#define GHCB_MSR_HV_FT_MASK		GENMASK_ULL(51, 0)
+ #define GHCB_MSR_HV_FT_RESP_VAL(v)			\
+ 	/* GHCBData[63:12] */				\
+ 	(((u64)(v) & GENMASK_ULL(63, 12)) >> 12)
+diff --git a/arch/x86/kvm/svm/sev.c b/arch/x86/kvm/svm/sev.c
+index a1318236acd2..b49c370d5ae9 100644
+--- a/arch/x86/kvm/svm/sev.c
++++ b/arch/x86/kvm/svm/sev.c
+@@ -2480,6 +2480,7 @@ static int sev_es_validate_vmgexit(struct vcpu_svm *svm)
+ 	case SVM_VMGEXIT_AP_HLT_LOOP:
+ 	case SVM_VMGEXIT_AP_JUMP_TABLE:
+ 	case SVM_VMGEXIT_UNSUPPORTED_EVENT:
++	case SVM_VMGEXIT_HV_FEATURES:
+ 		break;
+ 	default:
+ 		reason = GHCB_ERR_INVALID_EVENT;
+@@ -2746,6 +2747,13 @@ static int sev_handle_vmgexit_msr_protocol(struct vcpu_svm *svm)
+ 				  GHCB_MSR_INFO_MASK,
+ 				  GHCB_MSR_INFO_POS);
+ 		break;
++	case GHCB_MSR_HV_FT_REQ: {
++		set_ghcb_msr_bits(svm, GHCB_HV_FT_SUPPORTED,
++				  GHCB_MSR_HV_FT_MASK, GHCB_MSR_HV_FT_POS);
++		set_ghcb_msr_bits(svm, GHCB_MSR_HV_FT_RESP,
++				  GHCB_MSR_INFO_MASK, GHCB_MSR_INFO_POS);
++		break;
++	}
+ 	case GHCB_MSR_TERM_REQ: {
+ 		u64 reason_set, reason_code;
+ 
+@@ -2871,6 +2879,12 @@ int sev_handle_vmgexit(struct kvm_vcpu *vcpu)
+ 		ret = 1;
+ 		break;
+ 	}
++	case SVM_VMGEXIT_HV_FEATURES: {
++		ghcb_set_sw_exit_info_2(ghcb, GHCB_HV_FT_SUPPORTED);
++
++		ret = 1;
++		break;
++	}
+ 	case SVM_VMGEXIT_UNSUPPORTED_EVENT:
+ 		vcpu_unimpl(vcpu,
+ 			    "vmgexit: unsupported event - exit_info_1=%#llx, exit_info_2=%#llx\n",
+diff --git a/arch/x86/kvm/svm/svm.h b/arch/x86/kvm/svm/svm.h
+index 9f7eb1f18893..1f4a8bd09c9e 100644
+--- a/arch/x86/kvm/svm/svm.h
++++ b/arch/x86/kvm/svm/svm.h
+@@ -629,9 +629,10 @@ unsigned long avic_vcpu_get_apicv_inhibit_reasons(struct kvm_vcpu *vcpu);
+ 
+ /* sev.c */
+ 
+-#define GHCB_VERSION_MAX	1ULL
++#define GHCB_VERSION_MAX	2ULL
+ #define GHCB_VERSION_MIN	1ULL
+ 
++#define GHCB_HV_FT_SUPPORTED	0
+ 
+ extern unsigned int max_sev_asid;
+ 
+-- 
+2.36.1
+

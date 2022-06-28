@@ -1,0 +1,143 @@
+From 804d7336e9fe02000538a93f127a68db53838642 Mon Sep 17 00:00:00 2001
+From: Brijesh Singh <brijesh.singh@amd.com>
+Date: Tue, 26 Apr 2022 17:58:50 +0000
+Subject: [PATCH 13/89] crypto:ccp: Provide APIs to issue SEV-SNP commands
+
+Provide the APIs for the hypervisor to manage an SEV-SNP guest. The
+commands for SEV-SNP is defined in the SEV-SNP firmware specification.
+
+Signed-off-by: Brijesh Singh <brijesh.singh@amd.com>
+---
+ drivers/crypto/ccp/sev-dev.c | 24 ++++++++++++
+ include/linux/psp-sev.h      | 73 ++++++++++++++++++++++++++++++++++++
+ 2 files changed, 97 insertions(+)
+
+diff --git a/drivers/crypto/ccp/sev-dev.c b/drivers/crypto/ccp/sev-dev.c
+index 8a26735cefb6..056fd04074e4 100644
+--- a/drivers/crypto/ccp/sev-dev.c
++++ b/drivers/crypto/ccp/sev-dev.c
+@@ -1202,6 +1202,30 @@ int sev_guest_df_flush(int *error)
+ }
+ EXPORT_SYMBOL_GPL(sev_guest_df_flush);
+ 
++int snp_guest_decommission(struct sev_data_snp_decommission *data, int *error)
++{
++	return sev_do_cmd(SEV_CMD_SNP_DECOMMISSION, data, error);
++}
++EXPORT_SYMBOL_GPL(snp_guest_decommission);
++
++int snp_guest_df_flush(int *error)
++{
++	return sev_do_cmd(SEV_CMD_SNP_DF_FLUSH, NULL, error);
++}
++EXPORT_SYMBOL_GPL(snp_guest_df_flush);
++
++int snp_guest_page_reclaim(struct sev_data_snp_page_reclaim *data, int *error)
++{
++	return sev_do_cmd(SEV_CMD_SNP_PAGE_RECLAIM, data, error);
++}
++EXPORT_SYMBOL_GPL(snp_guest_page_reclaim);
++
++int snp_guest_dbg_decrypt(struct sev_data_snp_dbg *data, int *error)
++{
++	return sev_do_cmd(SEV_CMD_SNP_DBG_DECRYPT, data, error);
++}
++EXPORT_SYMBOL_GPL(snp_guest_dbg_decrypt);
++
+ static void sev_exit(struct kref *ref)
+ {
+ 	misc_deregister(&misc_dev->misc);
+diff --git a/include/linux/psp-sev.h b/include/linux/psp-sev.h
+index ef4d42e8c96e..9f921d221b75 100644
+--- a/include/linux/psp-sev.h
++++ b/include/linux/psp-sev.h
+@@ -881,6 +881,64 @@ int sev_guest_df_flush(int *error);
+  */
+ int sev_guest_decommission(struct sev_data_decommission *data, int *error);
+ 
++/**
++ * snp_guest_df_flush - perform SNP DF_FLUSH command
++ *
++ * @sev_ret: sev command return code
++ *
++ * Returns:
++ * 0 if the sev successfully processed the command
++ * -%ENODEV    if the sev device is not available
++ * -%ENOTSUPP  if the sev does not support SEV
++ * -%ETIMEDOUT if the sev command timed out
++ * -%EIO       if the sev returned a non-zero return code
++ */
++int snp_guest_df_flush(int *error);
++
++/**
++ * snp_guest_decommission - perform SNP_DECOMMISSION command
++ *
++ * @decommission: sev_data_decommission structure to be processed
++ * @sev_ret: sev command return code
++ *
++ * Returns:
++ * 0 if the sev successfully processed the command
++ * -%ENODEV    if the sev device is not available
++ * -%ENOTSUPP  if the sev does not support SEV
++ * -%ETIMEDOUT if the sev command timed out
++ * -%EIO       if the sev returned a non-zero return code
++ */
++int snp_guest_decommission(struct sev_data_snp_decommission *data, int *error);
++
++/**
++ * snp_guest_page_reclaim - perform SNP_PAGE_RECLAIM command
++ *
++ * @decommission: sev_snp_page_reclaim structure to be processed
++ * @sev_ret: sev command return code
++ *
++ * Returns:
++ * 0 if the sev successfully processed the command
++ * -%ENODEV    if the sev device is not available
++ * -%ENOTSUPP  if the sev does not support SEV
++ * -%ETIMEDOUT if the sev command timed out
++ * -%EIO       if the sev returned a non-zero return code
++ */
++int snp_guest_page_reclaim(struct sev_data_snp_page_reclaim *data, int *error);
++
++/**
++ * snp_guest_dbg_decrypt - perform SEV SNP_DBG_DECRYPT command
++ *
++ * @sev_ret: sev command return code
++ *
++ * Returns:
++ * 0 if the sev successfully processed the command
++ * -%ENODEV    if the sev device is not available
++ * -%ENOTSUPP  if the sev does not support SEV
++ * -%ETIMEDOUT if the sev command timed out
++ * -%EIO       if the sev returned a non-zero return code
++ */
++int snp_guest_dbg_decrypt(struct sev_data_snp_dbg *data, int *error);
++
+ void *psp_copy_user_blob(u64 uaddr, u32 len);
+ 
+ #else	/* !CONFIG_CRYPTO_DEV_SP_PSP */
+@@ -908,6 +966,21 @@ sev_issue_cmd_external_user(struct file *filep, unsigned int id, void *data, int
+ 
+ static inline void *psp_copy_user_blob(u64 __user uaddr, u32 len) { return ERR_PTR(-EINVAL); }
+ 
++static inline int
++snp_guest_decommission(struct sev_data_snp_decommission *data, int *error) { return -ENODEV; }
++
++static inline int snp_guest_df_flush(int *error) { return -ENODEV; }
++
++static inline int snp_guest_page_reclaim(struct sev_data_snp_page_reclaim *data, int *error)
++{
++	return -ENODEV;
++}
++
++static inline int snp_guest_dbg_decrypt(struct sev_data_snp_dbg *data, int *error)
++{
++	return -ENODEV;
++}
++
+ #endif	/* CONFIG_CRYPTO_DEV_SP_PSP */
+ 
+ #endif	/* __PSP_SEV_H__ */
+-- 
+2.36.1
+

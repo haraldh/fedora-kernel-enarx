@@ -1,0 +1,113 @@
+From 61e2c9e422a5186e87b801a5fac6aa2bc1c055b3 Mon Sep 17 00:00:00 2001
+From: Brijesh Singh <brijesh.singh@amd.com>
+Date: Tue, 26 Apr 2022 18:54:45 +0000
+Subject: [PATCH 36/89] KVM: SVM: Add support to handle GHCB GPA register
+ VMGEXIT
+
+SEV-SNP guests are required to perform a GHCB GPA registration. Before
+using a GHCB GPA for a vCPU the first time, a guest must register the
+vCPU GHCB GPA. If hypervisor can work with the guest requested GPA then
+it must respond back with the same GPA otherwise return -1.
+
+On VMEXIT, Verify that GHCB GPA matches with the registered value. If a
+mismatch is detected then abort the guest.
+
+Signed-off-by: Brijesh Singh <brijesh.singh@amd.com>
+---
+ arch/x86/include/asm/sev-common.h |  8 ++++++++
+ arch/x86/kvm/svm/sev.c            | 27 +++++++++++++++++++++++++++
+ arch/x86/kvm/svm/svm.h            |  7 +++++++
+ 3 files changed, 42 insertions(+)
+
+diff --git a/arch/x86/include/asm/sev-common.h b/arch/x86/include/asm/sev-common.h
+index 539de6b93420..0a9055cdfae2 100644
+--- a/arch/x86/include/asm/sev-common.h
++++ b/arch/x86/include/asm/sev-common.h
+@@ -59,6 +59,14 @@
+ #define GHCB_MSR_AP_RESET_HOLD_RESULT_POS	12
+ #define GHCB_MSR_AP_RESET_HOLD_RESULT_MASK	GENMASK_ULL(51, 0)
+ 
++/* Preferred GHCB GPA Request */
++#define GHCB_MSR_PREF_GPA_REQ		0x010
++#define GHCB_MSR_GPA_VALUE_POS		12
++#define GHCB_MSR_GPA_VALUE_MASK		GENMASK_ULL(51, 0)
++
++#define GHCB_MSR_PREF_GPA_RESP		0x011
++#define GHCB_MSR_PREF_GPA_NONE		0xfffffffffffff
++
+ /* GHCB GPA Register */
+ #define GHCB_MSR_REG_GPA_REQ		0x012
+ #define GHCB_MSR_REG_GPA_REQ_VAL(v)			\
+diff --git a/arch/x86/kvm/svm/sev.c b/arch/x86/kvm/svm/sev.c
+index f356f80f9959..a95b574c6569 100644
+--- a/arch/x86/kvm/svm/sev.c
++++ b/arch/x86/kvm/svm/sev.c
+@@ -3330,6 +3330,27 @@ static int sev_handle_vmgexit_msr_protocol(struct vcpu_svm *svm)
+ 				  GHCB_MSR_INFO_MASK, GHCB_MSR_INFO_POS);
+ 		break;
+ 	}
++	case GHCB_MSR_PREF_GPA_REQ: {
++		set_ghcb_msr_bits(svm, GHCB_MSR_PREF_GPA_NONE, GHCB_MSR_GPA_VALUE_MASK,
++				  GHCB_MSR_GPA_VALUE_POS);
++		set_ghcb_msr_bits(svm, GHCB_MSR_PREF_GPA_RESP, GHCB_MSR_INFO_MASK,
++				  GHCB_MSR_INFO_POS);
++		break;
++	}
++	case GHCB_MSR_REG_GPA_REQ: {
++		u64 gfn;
++
++		gfn = get_ghcb_msr_bits(svm, GHCB_MSR_GPA_VALUE_MASK,
++					GHCB_MSR_GPA_VALUE_POS);
++
++		svm->sev_es.ghcb_registered_gpa = gfn_to_gpa(gfn);
++
++		set_ghcb_msr_bits(svm, gfn, GHCB_MSR_GPA_VALUE_MASK,
++				  GHCB_MSR_GPA_VALUE_POS);
++		set_ghcb_msr_bits(svm, GHCB_MSR_REG_GPA_RESP, GHCB_MSR_INFO_MASK,
++				  GHCB_MSR_INFO_POS);
++		break;
++	}
+ 	case GHCB_MSR_TERM_REQ: {
+ 		u64 reason_set, reason_code;
+ 
+@@ -3380,6 +3401,12 @@ int sev_handle_vmgexit(struct kvm_vcpu *vcpu)
+ 		return 1;
+ 	}
+ 
++	/* SEV-SNP guest requires that the GHCB GPA must be registered */
++	if (sev_snp_guest(svm->vcpu.kvm) && !ghcb_gpa_is_registered(svm, ghcb_gpa)) {
++		vcpu_unimpl(&svm->vcpu, "vmgexit: GHCB GPA [%#llx] is not registered.\n", ghcb_gpa);
++		return -EINVAL;
++	}
++
+ 	ret = sev_es_validate_vmgexit(svm, &exit_code);
+ 	if (ret)
+ 		return ret;
+diff --git a/arch/x86/kvm/svm/svm.h b/arch/x86/kvm/svm/svm.h
+index c80352c9c0d6..54ff56cb6125 100644
+--- a/arch/x86/kvm/svm/svm.h
++++ b/arch/x86/kvm/svm/svm.h
+@@ -206,6 +206,8 @@ struct vcpu_sev_es_state {
+ 	 */
+ 	u64 ghcb_sw_exit_info_1;
+ 	u64 ghcb_sw_exit_info_2;
++
++	u64 ghcb_registered_gpa;
+ };
+ 
+ struct vcpu_svm {
+@@ -334,6 +336,11 @@ static inline bool sev_snp_guest(struct kvm *kvm)
+ 	return sev_es_guest(kvm) && sev->snp_active;
+ }
+ 
++static inline bool ghcb_gpa_is_registered(struct vcpu_svm *svm, u64 val)
++{
++	return svm->sev_es.ghcb_registered_gpa == val;
++}
++
+ static inline void vmcb_mark_all_dirty(struct vmcb *vmcb)
+ {
+ 	vmcb->control.clean = 0;
+-- 
+2.36.1
+

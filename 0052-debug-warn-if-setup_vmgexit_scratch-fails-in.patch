@@ -1,0 +1,30 @@
+From ef8f1663c030db438879cbd8ae2efa17ed4efd63 Mon Sep 17 00:00:00 2001
+From: Michael Roth <michael.roth@amd.com>
+Date: Tue, 26 Apr 2022 19:47:03 +0000
+Subject: [PATCH 52/89] *debug: warn if setup_vmgexit_scratch() fails in 
+ sev_es_string_io()
+
+Signed-off-by: Michael Roth <michael.roth@amd.com>
+---
+ arch/x86/kvm/svm/sev.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/arch/x86/kvm/svm/sev.c b/arch/x86/kvm/svm/sev.c
+index b3df120d5e20..6cadfbbfae89 100644
+--- a/arch/x86/kvm/svm/sev.c
++++ b/arch/x86/kvm/svm/sev.c
+@@ -4192,8 +4192,10 @@ int sev_es_string_io(struct vcpu_svm *svm, int size, unsigned int port, int in)
+ 		return -EINVAL;
+ 
+ 	r = setup_vmgexit_scratch(svm, in, bytes);
+-	if (r)
++	if (r) {
++		pr_err("failed to setup vmgexit scratch\n");
+ 		return r;
++	}
+ 
+ 	return kvm_sev_es_string_io(&svm->vcpu, size, port, svm->sev_es.ghcb_sa,
+ 				    count, in);
+-- 
+2.36.1
+

@@ -1,0 +1,79 @@
+From b85ffefe0fa8611df26b6a2f058b418cd0d04bd6 Mon Sep 17 00:00:00 2001
+From: Michael Roth <michael.roth@amd.com>
+Date: Tue, 26 Apr 2022 19:53:23 +0000
+Subject: [PATCH 55/89] *debug: warn and retry failed rmpupdates
+
+In some cases on B0 hardware exhibits something like the following
+behavior (where M < 512):
+
+  Guest A                        | Guest B
+ |-------------------------------|----------------------------------|
+ |                               | rc = rmpupdate pfn=N*512,4K,priv
+ | rmpupdate pfn=N*512+M,4K,priv |
+ | rc = FAIL_OVERLAP            | rc = SUCCESS
+
+The FAIL_OVERLAP might possible be the result of hardware temporarily
+treating Guest B's rmpupdate for pfn=N*512 as a 2M update, causing the
+subsequent update from Guest A for pfn=N*512+M to report FAIL_OVERLAP
+at that particular instance. Retrying the update for N*512+M immediately
+afterward seems to resolve the FAIL_OVERLAP issue reliably however.
+
+A similar failure has also been observed when transitioning pages back
+to shared during VM destroy. In this case repeating the rmpupdate does
+not always seem to resolve the failure immediately.
+
+Both situations are much more likely to occur if THP is disabled, or
+if it is enabled/disabled while guests are actively being
+started/stopped.
+
+Include some debug/error information to get a better idea of the
+behavior on different hardware, and add the rmpupdate retry as a
+workaround for Milan B0 testing.
+
+Signed-off-by: Michael Roth <michael.roth@amd.com>
+---
+ arch/x86/kernel/sev.c | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/arch/x86/kernel/sev.c b/arch/x86/kernel/sev.c
+index 6640a639fffc..5ae8c9f853c8 100644
+--- a/arch/x86/kernel/sev.c
++++ b/arch/x86/kernel/sev.c
+@@ -2530,6 +2530,7 @@ static int rmpupdate(u64 pfn, struct rmpupdate *val)
+ {
+ 	unsigned long paddr = pfn << PAGE_SHIFT;
+ 	int ret, level, npages;
++	int retries = 0;
+ 
+ 	if (!pfn_valid(pfn))
+ 		return -EINVAL;
+@@ -2552,12 +2553,26 @@ static int rmpupdate(u64 pfn, struct rmpupdate *val)
+ 		}
+ 	}
+ 
++retry:
+ 	/* Binutils version 2.36 supports the RMPUPDATE mnemonic. */
+ 	asm volatile(".byte 0xF2, 0x0F, 0x01, 0xFE"
+ 		     : "=a"(ret)
+ 		     : "a"(paddr), "c"((unsigned long)val)
+ 		     : "memory", "cc");
+ 
++	if (ret) {
++		if (!retries) {
++			pr_err("rmpupdate failed, ret: %d, pfn: %llx, npages: %d, level: %d, retrying (max: %d)...\n",
++			       ret, pfn, npages, level, 2 * num_present_cpus());
++			dump_stack();
++		}
++		retries++;
++		if (retries < 2 * num_present_cpus())
++			goto retry;
++	} else if (retries > 0) {
++		pr_err("rmpupdate for pfn %llx succeeded after %d retries\n", pfn, retries);
++	}
++
+ 	/*
+ 	 * Restore the direct map after the page is removed from the RMP table.
+ 	 */
+-- 
+2.36.1
+

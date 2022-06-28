@@ -1,0 +1,35 @@
+From f69a7ab309a72df726c3d9550c10d498960b55dc Mon Sep 17 00:00:00 2001
+From: Michael Roth <michael.roth@amd.com>
+Date: Tue, 26 Apr 2022 19:54:55 +0000
+Subject: [PATCH 56/89] *debug: print some debug output when handling userspace
+  RMP faults
+
+Signed-off-by: Michael Roth <michael.roth@amd.com>
+---
+ mm/memory.c | 10 ++++++++--
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/mm/memory.c b/mm/memory.c
+index c2187ffcbb8e..60f41a7b17f0 100644
+--- a/mm/memory.c
++++ b/mm/memory.c
+@@ -5034,8 +5034,14 @@ static vm_fault_t __handle_mm_fault(struct vm_area_struct *vma,
+ 			return 0;
+ 		}
+ 
+-		if (flags & FAULT_FLAG_PAGE_SPLIT)
+-			return handle_split_page_fault(&vmf);
++		if (flags & FAULT_FLAG_PAGE_SPLIT) {
++			int rcc;
++
++			pr_warn("going to split page at addr 0x%lx, flags: 0x%x\n", address, flags);
++			rcc = handle_split_page_fault(&vmf);
++			pr_warn("done split page at addr 0x%lx, rcc: %d\n", address, rcc);
++			return rcc;
++		}
+ 
+ 		if (pmd_trans_huge(vmf.orig_pmd) || pmd_devmap(vmf.orig_pmd)) {
+ 			if (pmd_protnone(vmf.orig_pmd) && vma_is_accessible(vma))
+-- 
+2.36.1
+

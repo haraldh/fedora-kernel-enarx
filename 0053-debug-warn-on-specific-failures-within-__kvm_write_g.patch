@@ -1,0 +1,36 @@
+From 701aa0d6326460665afdd291b06fb3c2a0a1edeb Mon Sep 17 00:00:00 2001
+From: Michael Roth <michael.roth@amd.com>
+Date: Tue, 26 Apr 2022 19:48:27 +0000
+Subject: [PATCH 53/89] *debug: warn on specific failures within
+ __kvm_write_guest_page()
+
+Signed-off-by: Michael Roth <michael.roth@amd.com>
+---
+ virt/kvm/kvm_main.c | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
+index f30bb8c16f26..5cf3e5915510 100644
+--- a/virt/kvm/kvm_main.c
++++ b/virt/kvm/kvm_main.c
+@@ -2974,11 +2974,15 @@ static int __kvm_write_guest_page(struct kvm *kvm,
+ 	unsigned long addr;
+ 
+ 	addr = gfn_to_hva_memslot(memslot, gfn);
+-	if (kvm_is_error_hva(addr))
++	if (kvm_is_error_hva(addr)) {
++		pr_warn_ratelimited("__kvm_write_guest_page addr is error hva: %ld\n", addr);
+ 		return -EFAULT;
++	}
+ 	r = __copy_to_user((void __user *)addr + offset, data, len);
+-	if (r)
++	if (r) {
++		pr_warn_ratelimited("__kvm_write_guest_page: __copy_to_user failure: %d", r);
+ 		return -EFAULT;
++	}
+ 	mark_page_dirty_in_slot(kvm, memslot, gfn);
+ 	return 0;
+ }
+-- 
+2.36.1
+

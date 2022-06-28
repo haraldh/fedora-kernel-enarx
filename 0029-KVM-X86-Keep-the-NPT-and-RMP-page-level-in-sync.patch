@@ -1,0 +1,149 @@
+From d2203462d423ede4e6146a2649576fbf3d7c5d96 Mon Sep 17 00:00:00 2001
+From: Brijesh Singh <brijesh.singh@amd.com>
+Date: Tue, 26 Apr 2022 18:39:57 +0000
+Subject: [PATCH 29/89] KVM: X86: Keep the NPT and RMP page level in sync
+
+When running an SEV-SNP VM, the sPA used to index the RMP entry is
+obtained through the NPT translation (gva->gpa->spa). The NPT page
+level is checked against the page level programmed in the RMP entry.
+If the page level does not match, then it will cause a nested page
+fault with the RMP bit set to indicate the RMP violation.
+
+Signed-off-by: Brijesh Singh <brijesh.singh@amd.com>
+---
+ arch/x86/include/asm/kvm-x86-ops.h |  1 +
+ arch/x86/include/asm/kvm_host.h    |  1 +
+ arch/x86/kvm/mmu/mmu.c             |  5 ++++
+ arch/x86/kvm/svm/sev.c             | 46 ++++++++++++++++++++++++++++++
+ arch/x86/kvm/svm/svm.c             |  1 +
+ arch/x86/kvm/svm/svm.h             |  1 +
+ 6 files changed, 55 insertions(+)
+
+diff --git a/arch/x86/include/asm/kvm-x86-ops.h b/arch/x86/include/asm/kvm-x86-ops.h
+index a66292dae698..e0068e702692 100644
+--- a/arch/x86/include/asm/kvm-x86-ops.h
++++ b/arch/x86/include/asm/kvm-x86-ops.h
+@@ -129,6 +129,7 @@ KVM_X86_OP(complete_emulated_msr)
+ KVM_X86_OP(vcpu_deliver_sipi_vector)
+ KVM_X86_OP_OPTIONAL_RET0(vcpu_get_apicv_inhibit_reasons);
+ KVM_X86_OP(alloc_apic_backing_page)
++KVM_X86_OP_OPTIONAL(rmp_page_level_adjust)
+ 
+ #undef KVM_X86_OP
+ #undef KVM_X86_OP_OPTIONAL
+diff --git a/arch/x86/include/asm/kvm_host.h b/arch/x86/include/asm/kvm_host.h
+index 0205e2944067..2748c69609e3 100644
+--- a/arch/x86/include/asm/kvm_host.h
++++ b/arch/x86/include/asm/kvm_host.h
+@@ -1514,6 +1514,7 @@ struct kvm_x86_ops {
+ 	unsigned long (*vcpu_get_apicv_inhibit_reasons)(struct kvm_vcpu *vcpu);
+ 
+ 	void *(*alloc_apic_backing_page)(struct kvm_vcpu *vcpu);
++	void (*rmp_page_level_adjust)(struct kvm *kvm, kvm_pfn_t pfn, int *level);
+ };
+ 
+ struct kvm_x86_nested_ops {
+diff --git a/arch/x86/kvm/mmu/mmu.c b/arch/x86/kvm/mmu/mmu.c
+index c623019929a7..997318ecebd1 100644
+--- a/arch/x86/kvm/mmu/mmu.c
++++ b/arch/x86/kvm/mmu/mmu.c
+@@ -43,6 +43,7 @@
+ #include <linux/hash.h>
+ #include <linux/kern_levels.h>
+ #include <linux/kthread.h>
++#include <linux/sev.h>
+ 
+ #include <asm/page.h>
+ #include <asm/memtype.h>
+@@ -2824,6 +2825,10 @@ static int host_pfn_mapping_level(struct kvm *kvm, gfn_t gfn, kvm_pfn_t pfn,
+ 	if (unlikely(!pte))
+ 		return PG_LEVEL_4K;
+ 
++	/* Adjust the page level based on the SEV-SNP RMP page level. */
++	if (kvm_x86_ops.rmp_page_level_adjust)
++		static_call(kvm_x86_rmp_page_level_adjust)(kvm, pfn, &level);
++
+ 	return level;
+ }
+ 
+diff --git a/arch/x86/kvm/svm/sev.c b/arch/x86/kvm/svm/sev.c
+index f540581d997f..31be2d52ec2d 100644
+--- a/arch/x86/kvm/svm/sev.c
++++ b/arch/x86/kvm/svm/sev.c
+@@ -3596,3 +3596,49 @@ struct page *snp_safe_alloc_page(struct kvm_vcpu *vcpu)
+ 
+ 	return pfn_to_page(pfn);
+ }
++
++static bool is_pfn_range_shared(kvm_pfn_t start, kvm_pfn_t end)
++{
++	int level;
++
++	while (end > start) {
++		if (snp_lookup_rmpentry(start, &level) != 0)
++			return false;
++		start++;
++	}
++
++	return true;
++}
++
++void sev_rmp_page_level_adjust(struct kvm *kvm, kvm_pfn_t pfn, int *level)
++{
++	int rmp_level, assigned;
++
++	if (!cpu_feature_enabled(X86_FEATURE_SEV_SNP))
++		return;
++
++	assigned = snp_lookup_rmpentry(pfn, &rmp_level);
++	if (unlikely(assigned < 0))
++		return;
++
++	if (!assigned) {
++		/*
++		 * If all the pages are shared then no need to keep the RMP
++		 * and NPT in sync.
++		 */
++		pfn = pfn & ~(PTRS_PER_PMD - 1);
++		if (is_pfn_range_shared(pfn, pfn + PTRS_PER_PMD))
++			return;
++	}
++
++	/*
++	 * The hardware installs 2MB TLB entries to access to 1GB pages,
++	 * therefore allow NPT to use 1GB pages when pfn was added as 2MB
++	 * in the RMP table.
++	 */
++	if (rmp_level == PG_LEVEL_2M && (*level == PG_LEVEL_1G))
++		return;
++
++	/* Adjust the level to keep the NPT and RMP in sync */
++	*level = min_t(size_t, *level, rmp_level);
++}
+diff --git a/arch/x86/kvm/svm/svm.c b/arch/x86/kvm/svm/svm.c
+index b4bd64f94d3a..18e2cd4d9559 100644
+--- a/arch/x86/kvm/svm/svm.c
++++ b/arch/x86/kvm/svm/svm.c
+@@ -4734,6 +4734,7 @@ static struct kvm_x86_ops svm_x86_ops __initdata = {
+ 	.vcpu_get_apicv_inhibit_reasons = avic_vcpu_get_apicv_inhibit_reasons,
+ 
+ 	.alloc_apic_backing_page = svm_alloc_apic_backing_page,
++	.rmp_page_level_adjust = sev_rmp_page_level_adjust,
+ };
+ 
+ /*
+diff --git a/arch/x86/kvm/svm/svm.h b/arch/x86/kvm/svm/svm.h
+index 71c011af098e..7782312a1cda 100644
+--- a/arch/x86/kvm/svm/svm.h
++++ b/arch/x86/kvm/svm/svm.h
+@@ -673,6 +673,7 @@ void sev_vcpu_deliver_sipi_vector(struct kvm_vcpu *vcpu, u8 vector);
+ void sev_es_prepare_switch_to_guest(struct sev_es_save_area *hostsa);
+ void sev_es_unmap_ghcb(struct vcpu_svm *svm);
+ struct page *snp_safe_alloc_page(struct kvm_vcpu *vcpu);
++void sev_rmp_page_level_adjust(struct kvm *kvm, kvm_pfn_t pfn, int *level);
+ 
+ /* vmenter.S */
+ 
+-- 
+2.36.1
+

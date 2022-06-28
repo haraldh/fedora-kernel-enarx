@@ -1,0 +1,99 @@
+From e4ae05c40a039cee9650f7d204e57873cf89bf22 Mon Sep 17 00:00:00 2001
+From: Ashish Kalra <ashish.kalra@amd.com>
+Date: Mon, 6 Jun 2022 22:28:01 +0000
+Subject: [PATCH 57/89] KVM: SVM: Sync the GHCB scratch buffer using already
+ mapped ghcb
+
+Using kvm_write_guest() to sync the GHCB scratch buffer can fail
+due to host mapping being 2M, but RMP being 4K. The page fault handling
+in do_user_addr_fault() fails to split the 2M page to handle RMP fault due
+to it being called here in a non-preemptible context. Instead use
+the already kernel mapped ghcb to sync the scratch buffer when the
+scratch buffer is contained within the GHCB.
+
+Signed-off-by: Ashish Kalra <ashish.kalra@amd.com>
+---
+ arch/x86/kvm/svm/sev.c | 32 ++++++++++++++++++++------------
+ arch/x86/kvm/svm/svm.h |  2 ++
+ 2 files changed, 22 insertions(+), 12 deletions(-)
+
+diff --git a/arch/x86/kvm/svm/sev.c b/arch/x86/kvm/svm/sev.c
+index 6cadfbbfae89..2bd437b2c1ff 100644
+--- a/arch/x86/kvm/svm/sev.c
++++ b/arch/x86/kvm/svm/sev.c
+@@ -2954,6 +2954,23 @@ static bool sev_es_sync_to_ghcb(struct vcpu_svm *svm)
+ 	ghcb_set_sw_exit_info_1(ghcb, svm->sev_es.ghcb_sw_exit_info_1);
+ 	ghcb_set_sw_exit_info_2(ghcb, svm->sev_es.ghcb_sw_exit_info_2);
+ 
++	/* Sync the scratch buffer area. */
++	if (svm->sev_es.ghcb_sa_sync) {
++		if (svm->sev_es.ghcb_sa_contained) {
++			memcpy(ghcb->shared_buffer + svm->sev_es.ghcb_sa_offset,
++			       svm->sev_es.ghcb_sa, svm->sev_es.ghcb_sa_len);
++		} else {
++			int ret;
++
++			ret = kvm_write_guest(svm->vcpu.kvm,
++					      svm->sev_es.ghcb_sa_gpa,
++					      svm->sev_es.ghcb_sa, svm->sev_es.ghcb_sa_len);
++			if (ret)
++				pr_warn_ratelimited("unmap_ghcb: kvm_write_guest failed while syncing scratch area, gpa: %llx, ret: %d\n", svm->sev_es.ghcb_sa_gpa, ret);
++		}
++		svm->sev_es.ghcb_sa_sync = false;
++	}
++
+ 	trace_kvm_vmgexit_exit(svm->vcpu.vcpu_id, ghcb);
+ 
+ 	svm_unmap_ghcb(svm, &map);
+@@ -3184,18 +3201,6 @@ void sev_es_unmap_ghcb(struct vcpu_svm *svm)
+ 	if (!svm->sev_es.ghcb_in_use)
+ 		return;
+ 
+-	 /* Sync the scratch buffer area. */
+-	if (svm->sev_es.ghcb_sa_sync) {
+-		int ret;
+-
+-		ret = kvm_write_guest(svm->vcpu.kvm,
+-				svm->sev_es.ghcb_sa_gpa,
+-				svm->sev_es.ghcb_sa, svm->sev_es.ghcb_sa_len);
+-		if (ret)
+-			pr_warn_ratelimited("unmap_ghcb: kvm_write_guest failed while syncing scratch area, gpa: %llx, ret: %d\n", svm->sev_es.ghcb_sa_gpa, ret);
+-		svm->sev_es.ghcb_sa_sync = false;
+-	}
+-
+ 	sev_es_sync_to_ghcb(svm);
+ 
+ 	svm->sev_es.ghcb_in_use = false;
+@@ -3261,6 +3266,8 @@ static int setup_vmgexit_scratch(struct vcpu_svm *svm, bool sync, u64 len)
+ 			       scratch_gpa_beg, scratch_gpa_end);
+ 			goto e_scratch;
+ 		}
++		svm->sev_es.ghcb_sa_contained = true;
++		svm->sev_es.ghcb_sa_offset = scratch_gpa_beg - ghcb_scratch_beg;
+ 	} else {
+ 		/*
+ 		 * The guest memory must be read into a kernel buffer, so
+@@ -3271,6 +3278,7 @@ static int setup_vmgexit_scratch(struct vcpu_svm *svm, bool sync, u64 len)
+ 			       len, GHCB_SCRATCH_AREA_LIMIT);
+ 			goto e_scratch;
+ 		}
++		svm->sev_es.ghcb_sa_contained = false;
+ 	}
+ 
+ 	if (svm->sev_es.ghcb_sa_alloc_len < len) {
+diff --git a/arch/x86/kvm/svm/svm.h b/arch/x86/kvm/svm/svm.h
+index 060c1eabee0a..7857f1800882 100644
+--- a/arch/x86/kvm/svm/svm.h
++++ b/arch/x86/kvm/svm/svm.h
+@@ -210,6 +210,8 @@ struct vcpu_sev_es_state {
+ 	u64 ghcb_sa_gpa;
+ 	u32 ghcb_sa_alloc_len;
+ 	bool ghcb_sa_sync;
++	bool ghcb_sa_contained;
++	u32 ghcb_sa_offset;
+ 
+ 	/*
+ 	 * SEV-ES support to hold the sw_exit_info return values to be
+-- 
+2.36.1
+

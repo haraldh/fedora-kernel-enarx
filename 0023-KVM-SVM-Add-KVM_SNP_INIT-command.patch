@@ -1,0 +1,218 @@
+From c67061ecca3ec218b2739d926b3d4008e6762007 Mon Sep 17 00:00:00 2001
+From: Brijesh Singh <brijesh.singh@amd.com>
+Date: Tue, 26 Apr 2022 18:23:14 +0000
+Subject: [PATCH 23/89] KVM: SVM: Add KVM_SNP_INIT command
+
+The KVM_SNP_INIT command is used by the hypervisor to initialize the
+SEV-SNP platform context. In a typical workflow, this command should be the
+first command issued. When creating SEV-SNP guest, the VMM must use this
+command instead of the KVM_SEV_INIT or KVM_SEV_ES_INIT.
+
+The flags value must be zero, it will be extended in future SNP support to
+communicate the optional features (such as restricted INT injection etc).
+
+Co-developed-by: Pavan Kumar Paluri <papaluri@amd.com>
+Signed-off-by: Pavan Kumar Paluri <papaluri@amd.com>
+Signed-off-by: Brijesh Singh <brijesh.singh@amd.com>
+---
+ .../virt/kvm/x86/amd-memory-encryption.rst    | 27 ++++++++++++
+ arch/x86/include/asm/svm.h                    |  1 +
+ arch/x86/kvm/svm/sev.c                        | 44 ++++++++++++++++++-
+ arch/x86/kvm/svm/svm.h                        |  4 ++
+ include/uapi/linux/kvm.h                      | 13 ++++++
+ 5 files changed, 87 insertions(+), 2 deletions(-)
+
+diff --git a/Documentation/virt/kvm/x86/amd-memory-encryption.rst b/Documentation/virt/kvm/x86/amd-memory-encryption.rst
+index 2d307811978c..903023f524af 100644
+--- a/Documentation/virt/kvm/x86/amd-memory-encryption.rst
++++ b/Documentation/virt/kvm/x86/amd-memory-encryption.rst
+@@ -435,6 +435,33 @@ issued by the hypervisor to make the guest ready for execution.
+ 
+ Returns: 0 on success, -negative on error
+ 
++18. KVM_SNP_INIT
++----------------
++
++The KVM_SNP_INIT command can be used by the hypervisor to initialize SEV-SNP
++context. In a typical workflow, this command should be the first command issued.
++
++Parameters (in/out): struct kvm_snp_init
++
++Returns: 0 on success, -negative on error
++
++::
++
++        struct kvm_snp_init {
++                __u64 flags;
++        };
++
++The flags bitmap is defined as::
++
++   /* enable the restricted injection */
++   #define KVM_SEV_SNP_RESTRICTED_INJET   (1<<0)
++
++   /* enable the restricted injection timer */
++   #define KVM_SEV_SNP_RESTRICTED_TIMER_INJET   (1<<1)
++
++If the specified flags is not supported then return -EOPNOTSUPP, and the supported
++flags are returned.
++
+ References
+ ==========
+ 
+diff --git a/arch/x86/include/asm/svm.h b/arch/x86/include/asm/svm.h
+index 1b07fba11704..284a8113227e 100644
+--- a/arch/x86/include/asm/svm.h
++++ b/arch/x86/include/asm/svm.h
+@@ -263,6 +263,7 @@ enum avic_ipi_failure_cause {
+ #define AVIC_HPA_MASK	~((0xFFFULL << 52) | 0xFFF)
+ #define VMCB_AVIC_APIC_BAR_MASK		0xFFFFFFFFFF000ULL
+ 
++#define SVM_SEV_FEAT_SNP_ACTIVE		BIT(0)
+ 
+ struct vmcb_seg {
+ 	u16 selector;
+diff --git a/arch/x86/kvm/svm/sev.c b/arch/x86/kvm/svm/sev.c
+index dc1f69a28aa7..813bda7f7b55 100644
+--- a/arch/x86/kvm/svm/sev.c
++++ b/arch/x86/kvm/svm/sev.c
+@@ -241,6 +241,25 @@ static void sev_unbind_asid(struct kvm *kvm, unsigned int handle)
+ 	sev_decommission(handle);
+ }
+ 
++static int verify_snp_init_flags(struct kvm *kvm, struct kvm_sev_cmd *argp)
++{
++	struct kvm_snp_init params;
++	int ret = 0;
++
++	if (copy_from_user(&params, (void __user *)(uintptr_t)argp->data, sizeof(params)))
++		return -EFAULT;
++
++	if (params.flags & ~SEV_SNP_SUPPORTED_FLAGS)
++		ret = -EOPNOTSUPP;
++
++	params.flags = SEV_SNP_SUPPORTED_FLAGS;
++
++	if (copy_to_user((void __user *)(uintptr_t)argp->data, &params, sizeof(params)))
++		ret = -EFAULT;
++
++	return ret;
++}
++
+ static int sev_guest_init(struct kvm *kvm, struct kvm_sev_cmd *argp)
+ {
+ 	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
+@@ -254,13 +273,23 @@ static int sev_guest_init(struct kvm *kvm, struct kvm_sev_cmd *argp)
+ 		return ret;
+ 
+ 	sev->active = true;
+-	sev->es_active = argp->id == KVM_SEV_ES_INIT;
++	sev->es_active = (argp->id == KVM_SEV_ES_INIT || argp->id == KVM_SEV_SNP_INIT);
++	sev->snp_active = argp->id == KVM_SEV_SNP_INIT;
+ 	asid = sev_asid_new(sev);
+ 	if (asid < 0)
+ 		goto e_no_asid;
+ 	sev->asid = asid;
+ 
+-	ret = sev_platform_init(&argp->error);
++	if (sev->snp_active) {
++		ret = verify_snp_init_flags(kvm, argp);
++		if (ret)
++			goto e_free;
++
++		ret = sev_snp_init(&argp->error);
++	} else {
++		ret = sev_platform_init(&argp->error);
++	}
++
+ 	if (ret)
+ 		goto e_free;
+ 
+@@ -275,6 +304,7 @@ static int sev_guest_init(struct kvm *kvm, struct kvm_sev_cmd *argp)
+ 	sev_asid_free(sev);
+ 	sev->asid = 0;
+ e_no_asid:
++	sev->snp_active = false;
+ 	sev->es_active = false;
+ 	sev->active = false;
+ 	return ret;
+@@ -610,6 +640,10 @@ static int sev_es_sync_vmsa(struct vcpu_svm *svm)
+ 	save->xss  = svm->vcpu.arch.ia32_xss;
+ 	save->dr6  = svm->vcpu.arch.dr6;
+ 
++	/* Enable the SEV-SNP feature */
++	if (sev_snp_guest(svm->vcpu.kvm))
++		save->sev_features |= SVM_SEV_FEAT_SNP_ACTIVE;
++
+ 	return 0;
+ }
+ 
+@@ -1815,6 +1849,12 @@ int sev_mem_enc_ioctl(struct kvm *kvm, void __user *argp)
+ 	}
+ 
+ 	switch (sev_cmd.id) {
++	case KVM_SEV_SNP_INIT:
++		if (!sev_snp_enabled) {
++			r = -ENOTTY;
++			goto out;
++		}
++		fallthrough;
+ 	case KVM_SEV_ES_INIT:
+ 		if (!sev_es_enabled) {
+ 			r = -ENOTTY;
+diff --git a/arch/x86/kvm/svm/svm.h b/arch/x86/kvm/svm/svm.h
+index edecc5066517..2f45589ee596 100644
+--- a/arch/x86/kvm/svm/svm.h
++++ b/arch/x86/kvm/svm/svm.h
+@@ -72,6 +72,9 @@ enum {
+ /* TPR and CR2 are always written before VMRUN */
+ #define VMCB_ALWAYS_DIRTY_MASK	((1U << VMCB_INTR) | (1U << VMCB_CR2))
+ 
++/* Supported init feature flags */
++#define SEV_SNP_SUPPORTED_FLAGS		0x0
++
+ struct kvm_sev_info {
+ 	bool active;		/* SEV enabled guest */
+ 	bool es_active;		/* SEV-ES enabled guest */
+@@ -87,6 +90,7 @@ struct kvm_sev_info {
+ 	struct list_head mirror_entry; /* Use as a list entry of mirrors */
+ 	struct misc_cg *misc_cg; /* For misc cgroup accounting */
+ 	atomic_t migration_in_progress;
++	u64 snp_init_flags;
+ };
+ 
+ struct kvm_svm {
+diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
+index 68ce07185f03..0f912cefc544 100644
+--- a/include/uapi/linux/kvm.h
++++ b/include/uapi/linux/kvm.h
+@@ -1810,6 +1810,9 @@ enum sev_cmd_id {
+ 	/* Guest Migration Extension */
+ 	KVM_SEV_SEND_CANCEL,
+ 
++	/* SNP specific commands */
++	KVM_SEV_SNP_INIT,
++
+ 	KVM_SEV_NR_MAX,
+ };
+ 
+@@ -1906,6 +1909,16 @@ struct kvm_sev_receive_update_data {
+ 	__u32 trans_len;
+ };
+ 
++/* enable the restricted injection */
++#define KVM_SEV_SNP_RESTRICTED_INJET   (1 << 0)
++
++/* enable the restricted injection timer */
++#define KVM_SEV_SNP_RESTRICTED_TIMER_INJET   (1 << 1)
++
++struct kvm_snp_init {
++	__u64 flags;
++};
++
+ #define KVM_DEV_ASSIGN_ENABLE_IOMMU	(1 << 0)
+ #define KVM_DEV_ASSIGN_PCI_2_3		(1 << 1)
+ #define KVM_DEV_ASSIGN_MASK_INTX	(1 << 2)
+-- 
+2.36.1
+

@@ -1,0 +1,91 @@
+From b797943039b696cf2def858b7f38af4fe2922577 Mon Sep 17 00:00:00 2001
+From: Ashish Kalra <ashish.kalra@amd.com>
+Date: Wed, 8 Jun 2022 19:10:07 +0000
+Subject: [PATCH 31/89] KVM: x86: Introduce kvm_mmu_get_tdp_walk() for SEV-SNP
+ use
+
+The SEV-SNP VMs may call the page state change VMGEXIT to add the GPA
+as private or shared in the RMP table. The page state change VMGEXIT
+will contain the RMP page level to be used in the RMP entry. If the
+page level between the TDP and RMP does not match then, it will result
+in nested-page-fault (RMP violation).
+
+The SEV-SNP VMGEXIT handler will use the kvm_mmu_get_tdp_walk() to get
+the current page-level in the TDP for the given GPA and calculate a
+workable page level. If a GPA is mapped as a 4K-page in the TDP, but
+the guest requested to add the GPA as a 2M in the RMP entry then the
+2M request will be broken into 4K-pages to keep the RMP and TDP
+page-levels in sync.
+
+TDP SPTEs are RCU protected so need to put kvm_mmu_get_tdp_walk() in RCU
+read-side critical section by using walk_shadow_page_lockless_begin() and
+walk_lockless_shadow_page_lockless_end(). This fixes the "suspicious RCU usage"
+message seen with lockdep kernel build.
+
+Signed-off-by: Brijesh Singh <brijesh.singh@amd.com>
+Signed-off by: Ashish Kalra <ashish.kalra@amd.com>
+---
+ arch/x86/kvm/mmu.h     |  2 ++
+ arch/x86/kvm/mmu/mmu.c | 33 +++++++++++++++++++++++++++++++++
+ 2 files changed, 35 insertions(+)
+
+diff --git a/arch/x86/kvm/mmu.h b/arch/x86/kvm/mmu.h
+index c99b15e97a0a..d55b5166389a 100644
+--- a/arch/x86/kvm/mmu.h
++++ b/arch/x86/kvm/mmu.h
+@@ -178,6 +178,8 @@ static inline bool is_nx_huge_page_enabled(void)
+ 	return READ_ONCE(nx_huge_pages);
+ }
+ 
++bool kvm_mmu_get_tdp_walk(struct kvm_vcpu *vcpu, gpa_t gpa, kvm_pfn_t *pfn, int *level);
++
+ static inline int kvm_mmu_do_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
+ 					u32 err, bool prefetch)
+ {
+diff --git a/arch/x86/kvm/mmu/mmu.c b/arch/x86/kvm/mmu/mmu.c
+index 569021af349a..c1ac486e096e 100644
+--- a/arch/x86/kvm/mmu/mmu.c
++++ b/arch/x86/kvm/mmu/mmu.c
+@@ -4151,6 +4151,39 @@ kvm_pfn_t kvm_mmu_map_tdp_page(struct kvm_vcpu *vcpu, gpa_t gpa,
+ }
+ EXPORT_SYMBOL_GPL(kvm_mmu_map_tdp_page);
+ 
++bool kvm_mmu_get_tdp_walk(struct kvm_vcpu *vcpu, gpa_t gpa, kvm_pfn_t *pfn, int *level)
++{
++	u64 sptes[PT64_ROOT_MAX_LEVEL + 1];
++	int leaf, root;
++
++	walk_shadow_page_lockless_begin(vcpu);
++
++	if (is_tdp_mmu(vcpu->arch.mmu))
++		leaf = kvm_tdp_mmu_get_walk(vcpu, gpa, sptes, &root);
++	else
++		leaf = get_walk(vcpu, gpa, sptes, &root);
++
++	walk_shadow_page_lockless_end(vcpu);
++
++	if (unlikely(leaf < 0))
++		return false;
++
++	/* Check if the leaf SPTE is present */
++	if (!is_shadow_present_pte(sptes[leaf]))
++		return false;
++
++	*pfn = spte_to_pfn(sptes[leaf]);
++	if (leaf > PG_LEVEL_4K) {
++		u64 page_mask = KVM_PAGES_PER_HPAGE(leaf) - KVM_PAGES_PER_HPAGE(leaf - 1);
++		*pfn |= (gpa_to_gfn(gpa) & page_mask);
++	}
++
++	*level = leaf;
++
++	return true;
++}
++EXPORT_SYMBOL_GPL(kvm_mmu_get_tdp_walk);
++
+ static void nonpaging_init_context(struct kvm_mmu *context)
+ {
+ 	context->page_fault = nonpaging_page_fault;
+-- 
+2.36.1
+

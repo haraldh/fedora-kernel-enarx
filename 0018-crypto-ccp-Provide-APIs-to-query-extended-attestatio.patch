@@ -1,0 +1,126 @@
+From 0e9f77f36537183cebe2e46ef954657f7b69fd1b Mon Sep 17 00:00:00 2001
+From: Brijesh Singh <brijesh.singh@amd.com>
+Date: Tue, 26 Apr 2022 18:07:46 +0000
+Subject: [PATCH 18/89] crypto: ccp: Provide APIs to query extended attestation
+ report
+
+Version 2 of the GHCB specification defines VMGEXIT that is used to get
+the extended attestation report. The extended attestation report includes
+the certificate blobs provided through the SNP_SET_EXT_CONFIG.
+
+The snp_guest_ext_guest_request() will be used by the hypervisor to get
+the extended attestation report. See the GHCB specification for more
+details.
+
+Signed-off-by: Brijesh Singh <brijesh.singh@amd.com>
+---
+ drivers/crypto/ccp/sev-dev.c | 43 ++++++++++++++++++++++++++++++++++++
+ include/linux/psp-sev.h      | 24 ++++++++++++++++++++
+ 2 files changed, 67 insertions(+)
+
+diff --git a/drivers/crypto/ccp/sev-dev.c b/drivers/crypto/ccp/sev-dev.c
+index eac10c93bdcd..740e610aeaf6 100644
+--- a/drivers/crypto/ccp/sev-dev.c
++++ b/drivers/crypto/ccp/sev-dev.c
+@@ -25,6 +25,7 @@
+ #include <linux/fs.h>
+ 
+ #include <asm/smp.h>
++#include <asm/sev.h>
+ 
+ #include "psp-dev.h"
+ #include "sev-dev.h"
+@@ -1854,6 +1855,48 @@ int snp_guest_dbg_decrypt(struct sev_data_snp_dbg *data, int *error)
+ }
+ EXPORT_SYMBOL_GPL(snp_guest_dbg_decrypt);
+ 
++int snp_guest_ext_guest_request(struct sev_data_snp_guest_request *data,
++				unsigned long vaddr, unsigned long *npages, unsigned long *fw_err)
++{
++	unsigned long expected_npages;
++	struct sev_device *sev;
++	int rc;
++
++	if (!psp_master || !psp_master->sev_data)
++		return -ENODEV;
++
++	sev = psp_master->sev_data;
++
++	if (!sev->snp_inited)
++		return -EINVAL;
++
++	/*
++	 * Check if there is enough space to copy the certificate chain. Otherwise
++	 * return ERROR code defined in the GHCB specification.
++	 */
++	expected_npages = sev->snp_certs_len >> PAGE_SHIFT;
++	if (*npages < expected_npages) {
++		*npages = expected_npages;
++		*fw_err = SNP_GUEST_REQ_INVALID_LEN;
++		return -EINVAL;
++	}
++
++	rc = sev_do_cmd(SEV_CMD_SNP_GUEST_REQUEST, data, (int *)&fw_err);
++	if (rc)
++		return rc;
++
++	/* Copy the certificate blob */
++	if (sev->snp_certs_data) {
++		*npages = expected_npages;
++		memcpy((void *)vaddr, sev->snp_certs_data, *npages << PAGE_SHIFT);
++	} else {
++		*npages = 0;
++	}
++
++	return rc;
++}
++EXPORT_SYMBOL_GPL(snp_guest_ext_guest_request);
++
+ static void sev_exit(struct kref *ref)
+ {
+ 	misc_deregister(&misc_dev->misc);
+diff --git a/include/linux/psp-sev.h b/include/linux/psp-sev.h
+index a3bb792bb842..cd37ccd1fa1f 100644
+--- a/include/linux/psp-sev.h
++++ b/include/linux/psp-sev.h
+@@ -945,6 +945,23 @@ void *psp_copy_user_blob(u64 uaddr, u32 len);
+ void *snp_alloc_firmware_page(gfp_t mask);
+ void snp_free_firmware_page(void *addr);
+ 
++/**
++ * snp_guest_ext_guest_request - perform the SNP extended guest request command
++ *  defined in the GHCB specification.
++ *
++ * @data: the input guest request structure
++ * @vaddr: address where the certificate blob need to be copied.
++ * @npages: number of pages for the certificate blob.
++ *    If the specified page count is less than the certificate blob size, then the
++ *    required page count is returned with error code defined in the GHCB spec.
++ *    If the specified page count is more than the certificate blob size, then
++ *    page count is updated to reflect the amount of valid data copied in the
++ *    vaddr.
++ */
++int snp_guest_ext_guest_request(struct sev_data_snp_guest_request *data,
++				unsigned long vaddr, unsigned long *npages,
++				unsigned long *error);
++
+ #else	/* !CONFIG_CRYPTO_DEV_SP_PSP */
+ 
+ static inline int
+@@ -992,6 +1009,13 @@ static inline void *snp_alloc_firmware_page(gfp_t mask)
+ 
+ static inline void snp_free_firmware_page(void *addr) { }
+ 
++static inline int snp_guest_ext_guest_request(struct sev_data_snp_guest_request *data,
++					      unsigned long vaddr, unsigned long *n,
++					      unsigned long *error)
++{
++	return -ENODEV;
++}
++
+ #endif	/* CONFIG_CRYPTO_DEV_SP_PSP */
+ 
+ #endif	/* __PSP_SEV_H__ */
+-- 
+2.36.1
+

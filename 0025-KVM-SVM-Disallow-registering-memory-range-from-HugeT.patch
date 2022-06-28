@@ -1,0 +1,86 @@
+From 5516a4d4748f6a118b22836ee891782eecb7ae5c Mon Sep 17 00:00:00 2001
+From: Brijesh Singh <brijesh.singh@amd.com>
+Date: Tue, 26 Apr 2022 18:27:38 +0000
+Subject: [PATCH 25/89] KVM: SVM: Disallow registering memory range from
+ HugeTLB for SNP guest
+
+While creating the VM, userspace call the KVM_MEMORY_ENCRYPT_REG_REGION
+ioctl to register the memory regions for the guest. This registered
+memory region is typically used as a guest RAM. Later, the guest may
+issue the page state change (PSC) request that will require splitting
+the large page into smaller page. If the memory is allocated from the
+HugeTLB then hypervisor will not be able to split it.
+
+Do not allow registering the memory range backed by the HugeTLB until
+the hypervisor support is added to handle the case.
+
+Signed-off-by: Brijesh Singh <brijesh.singh@amd.com>
+---
+ arch/x86/kvm/svm/sev.c | 37 +++++++++++++++++++++++++++++++++++++
+ 1 file changed, 37 insertions(+)
+
+diff --git a/arch/x86/kvm/svm/sev.c b/arch/x86/kvm/svm/sev.c
+index 9e6fc7a94ed7..41b83aa6b5f4 100644
+--- a/arch/x86/kvm/svm/sev.c
++++ b/arch/x86/kvm/svm/sev.c
+@@ -17,6 +17,7 @@
+ #include <linux/misc_cgroup.h>
+ #include <linux/processor.h>
+ #include <linux/trace_events.h>
++#include <linux/hugetlb.h>
+ 
+ #include <asm/pkru.h>
+ #include <asm/trapnr.h>
+@@ -2007,6 +2008,35 @@ int sev_mem_enc_ioctl(struct kvm *kvm, void __user *argp)
+ 	return r;
+ }
+ 
++static bool is_range_hugetlb(struct kvm *kvm, struct kvm_enc_region *range)
++{
++	struct vm_area_struct *vma;
++	u64 start, end;
++	bool ret = true;
++
++	start = range->addr;
++	end = start + range->size;
++
++	mmap_read_lock(kvm->mm);
++
++	do {
++		vma = find_vma_intersection(kvm->mm, start, end);
++		if (!vma)
++			goto unlock;
++
++		if (is_vm_hugetlb_page(vma))
++			goto unlock;
++
++		start = vma->vm_end;
++	} while (end > vma->vm_end);
++
++	ret = false;
++
++unlock:
++	mmap_read_unlock(kvm->mm);
++	return ret;
++}
++
+ int sev_mem_enc_register_region(struct kvm *kvm,
+ 				struct kvm_enc_region *range)
+ {
+@@ -2024,6 +2054,13 @@ int sev_mem_enc_register_region(struct kvm *kvm,
+ 	if (range->addr > ULONG_MAX || range->size > ULONG_MAX)
+ 		return -EINVAL;
+ 
++	/*
++	 * SEV-SNP does not support the backing pages from the HugeTLB. Verify
++	 * that the registered memory range is not from the HugeTLB.
++	 */
++	if (sev_snp_guest(kvm) && is_range_hugetlb(kvm, range))
++		return -EINVAL;
++
+ 	region = kzalloc(sizeof(*region), GFP_KERNEL_ACCOUNT);
+ 	if (!region)
+ 		return -ENOMEM;
+-- 
+2.36.1
+
